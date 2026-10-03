@@ -90,7 +90,7 @@ import java.time.format.DateTimeFormatter
         }
     }
 }
-@Composable fun ActivityEditor(original: ActivityRecord,vm: AppViewModel,close: ()->Unit,startTimer: (String,String)->Unit) {
+@Composable fun ActivityEditor(original: ActivityRecord,vm: AppViewModel,close: ()->Unit,startTimer: (String,String,Long)->Unit) {
     if(original.type=="Journal") { JournalEditor(original,vm,close); return }
     val values=remember(original.id) { mutableStateMapOf<String,String>().apply {putAll(original.values())} }
     var start by remember {mutableLongStateOf(roundToNearestMinute(original.start))};var note by remember {mutableStateOf(original.note)}
@@ -115,13 +115,18 @@ import java.time.format.DateTimeFormatter
     EntrySheet(if(persisted) "Edit ${original.type}" else original.type,close,accent(original.type)) {
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal=20.dp)) {
             if(original.type in listOf("Breastfeed","Bottle Feed","Combo Feed","Pump","Sleep") && (!persisted || activeTimer==null || timerForThisEntry)) {
-                QuickTimerControls(original.type,activeTimer,elapsed,lastSide,vm,original.duration()*1000,original.values()["[${original.type}] Left Duration (Seconds)"].orEmpty().toLongOrNull()?.times(1000) ?: 0L,original.values()["[${original.type}] Right Duration (Seconds)"].orEmpty().toLongOrNull()?.times(1000) ?: 0L,persisted) { selectedSide -> if(persisted) vm.resume(original,selectedSide) else startTimer(original.type,selectedSide) }
+                QuickTimerControls(original.type,activeTimer,elapsed,lastSide,vm,original.duration()*1000,original.values()["[${original.type}] Left Duration (Seconds)"].orEmpty().toLongOrNull()?.times(1000) ?: 0L,original.values()["[${original.type}] Right Duration (Seconds)"].orEmpty().toLongOrNull()?.times(1000) ?: 0L,persisted) { selectedSide -> if(persisted) vm.resume(original.copy(start=start),selectedSide) else startTimer(original.type,selectedSide,start) }
                 if(!persisted) Text("Add an earlier completed session",color=Muted,fontSize=14.sp,fontWeight=FontWeight.SemiBold,modifier=Modifier.padding(top=18.dp))
             } else if(persisted && activeTimer!=null) {
                 Text("Another ${original.type.lowercase()} timer is active. Stop it before resuming this entry.",color=Muted,modifier=Modifier.padding(top=14.dp))
             }
             if(!persisted && original.type=="Diaper") DiaperQuickChoices(values)
-            DateTimeInput("Start time",start,zone) {start=it;if(original.type=="Sleep" && sleepEnd<it) sleepEnd=it}
+            DateTimeInput("Start time",start,zone) {updated ->
+                start=updated
+                if(activeTimer!=null && (!persisted || timerForThisEntry)) vm.adjustTimerStart(activeTimer.id,updated)
+                if(original.type=="Sleep" && sleepEnd<updated) sleepEnd=updated
+            }
+            if(activeTimer!=null && (!persisted || timerForThisEntry)) Text("Changing the start time recalculates the running timer.",color=Muted,fontSize=12.sp,modifier=Modifier.padding(top=4.dp))
             if(original.type=="Sleep") DateTimeInput("End time",sleepEnd,zone) {sleepEnd=it}
             if(original.type in listOf("Pump","Bottle Feed")) Input("Duration (minutes)",duration,{duration=it})
             if(original.type in listOf("Breastfeed","Combo Feed")) {

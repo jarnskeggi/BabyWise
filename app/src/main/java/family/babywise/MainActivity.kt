@@ -121,7 +121,7 @@ class MainActivity: ComponentActivity() {
             types.forEach { type -> FilledTonalButton(onClick={editor=ActivityRecord(profileId=if(type=="Pump") null else profile!!.id,type=type);addTypes=null},modifier=Modifier.fillMaxWidth().heightIn(min=60.dp),colors=ButtonDefaults.filledTonalButtonColors(containerColor=accent(type).copy(alpha=.18f),contentColor=Color.White)) { Icon(icon(type),null,tint=accent(type)); Spacer(Modifier.width(14.dp));Text(when(type) {"Breastfeed"->"Breastfeed";"Bottle Feed"->"Bottle feed";else->type},fontSize=18.sp) } }
         }
     } }
-    editor?.let { a -> ActivityEditor(a,vm,{editor=null}, {type,side -> vm.timer(a.profileId.orEmpty(),type,side)}) }
+    editor?.let { a -> ActivityEditor(a,vm,{editor=null}, {type,side,start -> vm.timer(a.profileId.orEmpty(),type,side,start)}) }
     profileEditor?.let { p -> ProfileEditor(p,vm) { profileEditor=null } }
     if(dailySummary && profile!=null) DailySummary(profile,records,timers) {dailySummary=false}
     if(growth && profile!=null) FullScreen("Growth · ${profile.name}",{growth=false}) { GrowthScreen(profile,records,vm) { editor=it } }

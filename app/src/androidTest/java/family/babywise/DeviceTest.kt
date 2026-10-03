@@ -146,4 +146,10 @@ class DeviceTest {
         repo.controlTimer(timer.id,"stop")
         assertEquals(1,repo.dao.activities().size);val updated=repo.dao.activities().single();assertEquals(feed.id,updated.id);assertTrue(updated.duration()>=420)
     }
+    @Test fun timerCanStartWithElapsedTimeAndBeRebased()=runBlocking {
+        val now=System.currentTimeMillis();repo.startTimer(child.id,"Bottle Feed",start=now-5*60_000)
+        val timer=repo.dao.timers().single();assertTrue(repo.elapsed(timer)>=4*60_000)
+        repo.adjustTimerStart(timer.id,now-9*60_000)
+        assertTrue(repo.elapsed(repo.dao.timers().single())>=8*60_000)
+    }
 }

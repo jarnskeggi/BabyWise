@@ -140,11 +140,21 @@ class Repository(val context: Context) {
     }
     fun boot(): Int = Settings.Global.getInt(context.contentResolver, Settings.Global.BOOT_COUNT, -1)
     fun elapsed(t: TimerRecord, wall: Long = System.currentTimeMillis(), mono: Long = SystemClock.elapsedRealtime()): Long = TimerMath.elapsed(t, wall, mono, boot())
-    suspend fun startTimer(owner: String, type: String, side: String = "LEFT") = mutex.withLock {
+    suspend fun startTimer(owner: String, type: String, side: String = "LEFT", start: Long = roundToNearestMinute(System.currentTimeMillis())) = mutex.withLock {
         val category = ActivityKinds.category(type)
         require(dao.timers().none { it.owner == owner && it.category == category }) { "This profile already has an active $category session" }
         val now = System.currentTimeMillis()
-        dao.put(TimerRecord(owner = owner, category = category, type = type, start = roundToNearestMinute(now), side = side, beginSide = side, anchorWall = now, anchorElapsed = SystemClock.elapsedRealtime(), boot = boot()))
+        val initial=roundToNearestMinute((now-start).coerceAtLeast(0))
+        dao.put(TimerRecord(owner = owner, category = category, type = type, start = start, side = side, beginSide = side, anchorWall = now, anchorElapsed = SystemClock.elapsedRealtime(), boot = boot(),accumulated=initial,left=if(type in listOf("Breastfeed","Combo Feed") && side=="LEFT") initial else 0,right=if(type in listOf("Breastfeed","Combo Feed") && side=="RIGHT") initial else 0))
+    }
+    /** Set an active timer's real start time; its displayed total becomes the elapsed time since then. */
+    suspend fun adjustTimerStart(id: String, start: Long) = mutex.withLock {
+        val timer=dao.timers().find {it.id==id} ?: return@withLock
+        val now=System.currentTimeMillis(); val total=roundToNearestMinute((now-start).coerceAtLeast(0))
+        val (left,right)=if(timer.type in listOf("Breastfeed","Combo Feed")) {
+            if(timer.side=="LEFT") (total-timer.right).coerceAtLeast(0) to timer.right else timer.left to (total-timer.left).coerceAtLeast(0)
+        } else 0L to 0L
+        dao.put(timer.copy(start=start,accumulated=total,left=left,right=right,anchorWall=now,anchorElapsed=SystemClock.elapsedRealtime(),boot=boot()))
     }
     /** Continue a completed entry from its saved totals. Stopping the timer updates that same row. */
     suspend fun resumeTimer(activity: ActivityRecord, side: String = "LEFT") = mutex.withLock {
@@ -176,7 +186,7 @@ class Repository(val context: Context) {
                 }
                 val who = caregiver()
                 val prior=dao.activities().find {it.id==t.activityId}
-                val activity=prior?.copy(detail=codec.encodeToString(values),updater=who,dirty=true) ?: ActivityRecord(profileId = t.owner.ifBlank { null }, type = t.type, start = t.start, creator = who, updater = who, detail = codec.encodeToString(values))
+                val activity=prior?.copy(start=t.start,detail=codec.encodeToString(values),updater=who,dirty=true) ?: ActivityRecord(profileId = t.owner.ifBlank { null }, type = t.type, start = t.start, creator = who, updater = who, detail = codec.encodeToString(values))
                 dao.put(activity)
                 dao.deleteTimer(id)
                 activity

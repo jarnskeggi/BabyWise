@@ -23,7 +23,8 @@ class AppViewModel(app: Application): AndroidViewModel(app) {
     fun work(success: String? = null, block: suspend () -> Unit) {
         viewModelScope.launch { operations.withLock { busy.value=true; try { withContext(Dispatchers.IO) { block() }; if(success != null) message.value=success } catch(e: Exception) { message.value=e.message ?: "Operation failed" } finally { busy.value=false } } }
     }
-    fun timer(owner: String,type: String,side: String) = work { repo.startTimer(owner,type,side); withContext(Dispatchers.Main) { TimerService.ensure(getApplication()) } }
+    fun timer(owner: String,type: String,side: String,start: Long) = work { repo.startTimer(owner,type,side,start); withContext(Dispatchers.Main) { TimerService.ensure(getApplication()) } }
+    fun adjustTimerStart(id: String,start: Long) = work { repo.adjustTimerStart(id,start) }
     fun resume(activity: ActivityRecord,side: String) = work { repo.resumeTimer(activity,side); withContext(Dispatchers.Main) { TimerService.ensure(getApplication()) } }
     fun control(id: String,action: String) = work { repo.controlTimer(id,action); if(repo.dao.timers().isNotEmpty()) withContext(Dispatchers.Main) { TimerService.ensure(getApplication()) } }
     fun finishTimer(id: String,note: String,photos: List<Uri>,onFinished: () -> Unit) = work("Timer saved") {
