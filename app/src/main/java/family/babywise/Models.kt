@@ -52,7 +52,9 @@ data class ActivityRecord(@PrimaryKey val id: String = newId(), val profileId: S
 data class TimerRecord(@PrimaryKey val id: String = newId("timer"), val owner: String, val category: String,
     val type: String, val start: Long, val side: String = "LEFT", val beginSide: String = "LEFT", val running: Boolean = true,
     val anchorWall: Long, val anchorElapsed: Long, val boot: Int, val accumulated: Long = 0,
-    val left: Long = 0, val right: Long = 0)
+    val left: Long = 0, val right: Long = 0,
+    /** Existing activity updated when a completed entry's timer is resumed; blank for a new entry. */
+    val activityId: String = "")
 
 @Serializable @Entity(tableName = "segments")
 data class TimerSegment(@PrimaryKey val id: String = newId("seg"), val timerId: String, val start: Long, val end: Long, val side: String, val durationMs: Long)

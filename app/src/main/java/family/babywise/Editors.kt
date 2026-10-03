@@ -107,15 +107,18 @@ import java.time.format.DateTimeFormatter
     val zone=ZoneId.of(original.zone)
     val activities=vm.activities.collectAsState().value
     val activeTimer=vm.timers.collectAsState().value.firstOrNull { it.owner==original.profileId.orEmpty() && it.category==ActivityKinds.category(original.type) }
+    val timerForThisEntry=activeTimer?.activityId==original.id
     val lastNursing=activities.firstOrNull { it.profileId==original.profileId && it.type in listOf("Breastfeed","Combo Feed") }
     val lastSide=lastNursing?.values()?.get("[${lastNursing.type}] End Side").orEmpty()
     var elapsed by remember(activeTimer?.id) { mutableLongStateOf(activeTimer?.let(vm.repo::elapsed) ?: 0L) }
     LaunchedEffect(activeTimer) { if(activeTimer!=null) while(true) {elapsed=vm.repo.elapsed(activeTimer);kotlinx.coroutines.delay(1000)} }
     EntrySheet(if(persisted) "Edit ${original.type}" else original.type,close,accent(original.type)) {
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal=20.dp)) {
-            if(!persisted && original.type in listOf("Breastfeed","Bottle Feed","Combo Feed","Pump","Sleep")) {
-                QuickTimerControls(original.type,original.profileId.orEmpty(),activeTimer,elapsed,lastSide,vm) { selectedSide -> startTimer(original.type,selectedSide) }
-                Text("Add an earlier completed session",color=Muted,fontSize=14.sp,fontWeight=FontWeight.SemiBold,modifier=Modifier.padding(top=18.dp))
+            if(original.type in listOf("Breastfeed","Bottle Feed","Combo Feed","Pump","Sleep") && (!persisted || activeTimer==null || timerForThisEntry)) {
+                QuickTimerControls(original.type,activeTimer,elapsed,lastSide,vm,original.duration()*1000,original.values()["[${original.type}] Left Duration (Seconds)"].orEmpty().toLongOrNull()?.times(1000) ?: 0L,original.values()["[${original.type}] Right Duration (Seconds)"].orEmpty().toLongOrNull()?.times(1000) ?: 0L,persisted) { selectedSide -> if(persisted) vm.resume(original,selectedSide) else startTimer(original.type,selectedSide) }
+                if(!persisted) Text("Add an earlier completed session",color=Muted,fontSize=14.sp,fontWeight=FontWeight.SemiBold,modifier=Modifier.padding(top=18.dp))
+            } else if(persisted && activeTimer!=null) {
+                Text("Another ${original.type.lowercase()} timer is active. Stop it before resuming this entry.",color=Muted,modifier=Modifier.padding(top=14.dp))
             }
             if(!persisted && original.type=="Diaper") DiaperQuickChoices(values)
             DateTimeInput("Start time",start,zone) {start=it;if(original.type=="Sleep" && sleepEnd<it) sleepEnd=it}
@@ -123,8 +126,10 @@ import java.time.format.DateTimeFormatter
             if(original.type in listOf("Pump","Bottle Feed")) Input("Duration (minutes)",duration,{duration=it})
             if(original.type in listOf("Breastfeed","Combo Feed")) {
                 Text("How long on each side?",color=Muted,modifier=Modifier.padding(top=16.dp,bottom=2.dp))
-                Input("Left duration (minutes)",leftMinutes,{leftMinutes=it})
-                Input("Right duration (minutes)",rightMinutes,{rightMinutes=it})
+                Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(10.dp)) {
+                    Input("Left minutes",leftMinutes,{leftMinutes=it},Modifier.weight(1f))
+                    Input("Right minutes",rightMinutes,{rightMinutes=it},Modifier.weight(1f))
+                }
             }
             columns.forEach { key ->
                 val label=key.substringAfter("] ");val value=values[key].orEmpty()
@@ -165,7 +170,7 @@ import java.time.format.DateTimeFormatter
                 // A timer is actionable only while creating a new entry. Previously this
                 // branch also ran when editing a completed entry, silently saving the timer
                 // and discarding the edit that the user had just made.
-                if(!persisted && activeTimer!=null) { vm.finishTimer(activeTimer.id,note,photos) {close()}; return@Button }
+                if(activeTimer!=null && (!persisted || timerForThisEntry)) { vm.finishTimer(activeTimer.id,note,photos) {close()}; return@Button }
                 val numeric=values.filterKeys {it.contains("Duration") || it.endsWith(" Volume") || it in listOf("[Growth] Weight","[Growth] Height","[Growth] Head Size","[Medical] Temperature")}
                 require(numeric.values.all {it.isBlank() || it.toDoubleOrNull()?.let {n->n.isFinite() && n>=0}==true}) {"Enter valid non-negative numbers"}
                 if(original.type=="Sleep") {
@@ -190,7 +195,7 @@ import java.time.format.DateTimeFormatter
                 val a=original.copy(start=start,note=note,detail=codec.encodeToString(values.toMap()),dirty=true)
                 vm.work("Entry saved") {vm.repo.save(a,photos,removedPhotos);kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {close()}}
             } catch(e: Exception) {error=e.message.orEmpty()}
-        },modifier=Modifier.fillMaxWidth().padding(16.dp),colors=ButtonDefaults.buttonColors(containerColor=if(!persisted && activeTimer!=null) Color(0xFFFF6425) else Blue)) {Text(if(!persisted && activeTimer!=null) "Stop & save timer" else "Save entry")}
+        },modifier=Modifier.fillMaxWidth().padding(16.dp),colors=ButtonDefaults.buttonColors(containerColor=if(activeTimer!=null && (!persisted || timerForThisEntry)) Color(0xFFFF6425) else Blue)) {Text(if(activeTimer!=null && (!persisted || timerForThisEntry)) "Stop & save timer" else "Save entry")}
     }
     if(deleting) AlertDialog(onDismissRequest={deleting=false},title={Text("Delete this entry?")},text={Text("This removes the entry and its attached photos from this phone.")},confirmButton={TextButton(onClick={vm.work("Entry deleted") {vm.repo.delete(original)};close()}) {Text("Delete")}},dismissButton={TextButton(onClick={deleting=false}) {Text("Cancel")}})
 }
@@ -228,33 +233,33 @@ import java.time.format.DateTimeFormatter
     if(deleting) AlertDialog(onDismissRequest={deleting=false},title={Text("Delete journal entry?")},text={Text("This removes the entry and its attached photos from this phone.")},confirmButton={TextButton(onClick={vm.work("Journal entry deleted") {vm.repo.delete(original)};close()}) {Text("Delete")}},dismissButton={TextButton(onClick={deleting=false}) {Text("Cancel")}})
 }
 
-@Composable private fun QuickTimerControls(type: String,owner: String,timer: TimerRecord?,elapsed: Long,lastSide: String,vm: AppViewModel,start: (String)->Unit) {
+@Composable private fun QuickTimerControls(type: String,timer: TimerRecord?,elapsed: Long,lastSide: String,vm: AppViewModel,baseDuration: Long,baseLeft: Long,baseRight: Long,resuming: Boolean,start: (String)->Unit) {
     val nursing=type in listOf("Breastfeed","Combo Feed")
     val runningDelta=(elapsed-(timer?.accumulated ?: 0L)).coerceAtLeast(0L)
-    val left=(timer?.left ?: 0L)+if(timer?.side=="LEFT") runningDelta else 0L
-    val right=(timer?.right ?: 0L)+if(timer?.side=="RIGHT") runningDelta else 0L
+    val left=(timer?.left ?: baseLeft)+if(timer?.side=="LEFT") runningDelta else 0L
+    val right=(timer?.right ?: baseRight)+if(timer?.side=="RIGHT") runningDelta else 0L
     Column(Modifier.fillMaxWidth().padding(top=12.dp),horizontalAlignment=Alignment.CenterHorizontally) {
         if(nursing) {
             Row(Modifier.fillMaxWidth().padding(top=14.dp),horizontalArrangement=Arrangement.spacedBy(14.dp)) {
-                NursingSide("Left",left,timer?.side=="LEFT",timer?.running==true,lastSide=="LEFT",Modifier.weight(1f)) {
+                NursingSide("Left",left,timer?.side=="LEFT",timer?.running==true,lastSide=="LEFT",resuming,Modifier.weight(1f)) {
                     when { timer==null -> start("LEFT"); timer.side!="LEFT" -> vm.control(timer.id,"switch"); else -> vm.control(timer.id,"toggle") }
                 }
-                NursingSide("Right",right,timer?.side=="RIGHT",timer?.running==true,lastSide=="RIGHT",Modifier.weight(1f)) {
+                NursingSide("Right",right,timer?.side=="RIGHT",timer?.running==true,lastSide=="RIGHT",resuming,Modifier.weight(1f)) {
                     when { timer==null -> start("RIGHT"); timer.side!="RIGHT" -> vm.control(timer.id,"switch"); else -> vm.control(timer.id,"toggle") }
                 }
             }
         } else {
             Text(if(type=="Sleep") "Total time" else "Timer",fontFamily=FontFamily.Serif,fontSize=25.sp)
-            Text(displayTimerDuration(elapsed/1000),fontFamily=FontFamily.Serif,fontSize=44.sp)
-            Button(onClick={if(timer==null) start("LEFT") else vm.control(timer.id,"toggle")},modifier=Modifier.heightIn(min=58.dp).padding(top=4.dp),shape=RoundedCornerShape(30.dp),colors=ButtonDefaults.buttonColors(containerColor=if(timer?.running==true) Color(0xFFFF6425) else Blue)) { Text(if(timer==null) "Start timer" else if(timer.running) "Pause timer" else "Resume timer",fontSize=19.sp) }
+            Text(displayTimerDuration((if(timer==null) baseDuration else elapsed)/1000),fontFamily=FontFamily.Serif,fontSize=44.sp)
+            Button(onClick={if(timer==null) start("LEFT") else vm.control(timer.id,"toggle")},modifier=Modifier.heightIn(min=58.dp).padding(top=4.dp),shape=RoundedCornerShape(30.dp),colors=ButtonDefaults.buttonColors(containerColor=if(timer?.running==true) Color(0xFFFF6425) else Blue)) { Text(if(timer==null && resuming) "Resume timer" else if(timer==null) "Start timer" else if(timer.running) "Pause timer" else "Resume timer",fontSize=19.sp) }
         }
     }
 }
-@Composable private fun NursingSide(label: String,duration: Long,active: Boolean,running: Boolean,last: Boolean,modifier: Modifier,onClick: ()->Unit) {
+@Composable private fun NursingSide(label: String,duration: Long,active: Boolean,running: Boolean,last: Boolean,resuming: Boolean,modifier: Modifier,onClick: ()->Unit) {
     Column(modifier,horizontalAlignment=Alignment.CenterHorizontally) {
         if(last) Text("Last side",color=Ink,fontFamily=FontFamily.Serif,modifier=Modifier.clip(RoundedCornerShape(8.dp)).background(accent("Feed").copy(alpha=.65f)).padding(horizontal=10.dp,vertical=4.dp)) else Spacer(Modifier.height(29.dp))
         Text(displayTimerDuration(duration/1000),fontFamily=FontFamily.Serif,fontSize=32.sp,color=if(active) accent("Feed") else Color.White)
-        Button(onClick=onClick,modifier=Modifier.fillMaxWidth().heightIn(min=56.dp),shape=RoundedCornerShape(30.dp),colors=ButtonDefaults.buttonColors(containerColor=if(active && running) Color(0xFFFF6425) else Color.Transparent,contentColor=Color.White),border=BorderStroke(1.dp,Color.White.copy(alpha=.85f))) { Text(when { active && running -> "Pause $label"; active -> "Resume $label"; else -> "Start $label" },fontSize=16.sp) }
+        Button(onClick=onClick,modifier=Modifier.fillMaxWidth().heightIn(min=56.dp),shape=RoundedCornerShape(30.dp),colors=ButtonDefaults.buttonColors(containerColor=if(active && running) Color(0xFFFF6425) else Color.Transparent,contentColor=Color.White),border=BorderStroke(1.dp,Color.White.copy(alpha=.85f))) { Text(when { active && running -> "Pause $label"; active -> "Resume $label"; resuming -> "Resume $label"; else -> "Start $label" },fontSize=16.sp) }
     }
 }
 @Composable private fun DiaperQuickChoices(values: MutableMap<String,String>) {

@@ -177,7 +177,7 @@ class MainActivity: ComponentActivity() {
                 val active=timers.firstOrNull { timer -> (name=="Feed" && timer.category=="feed") || (name=="Sleep" && timer.category=="Sleep") }
                 if(active!=null) {
                     HorizontalDivider(color=Muted.copy(alpha=.2f))
-                    InlineTimerStatus(active,vm) { edit(ActivityRecord(profileId=active.owner.ifBlank { p.id },type=active.type)) }
+                    InlineTimerStatus(active,vm) { edit(records.firstOrNull {it.id==active.activityId} ?: ActivityRecord(profileId=active.owner.ifBlank { p.id },type=active.type)) }
                 }
                 HorizontalDivider(color=Muted.copy(alpha=.2f))
                 TextButton(onClick={expanded=!expanded},modifier=Modifier.fillMaxWidth()) { Text(if(expanded) "Show less" else "Recent entries (${recent.size})"); Icon(if(expanded) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore,null) }

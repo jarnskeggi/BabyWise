@@ -1,6 +1,8 @@
 package family.babywise
 
 import androidx.room.*
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import kotlinx.coroutines.flow.Flow
 
 @Dao interface BabyDao {
@@ -39,5 +41,12 @@ import kotlinx.coroutines.flow.Flow
     @Query("DELETE FROM reminders") suspend fun clearReminders()
     @Query("DELETE FROM metadata") suspend fun clearMetadata()
 }
-@Database(entities = [Profile::class, ActivityRecord::class, TimerRecord::class, TimerSegment::class, Attachment::class, Caregiver::class, Reminder::class, Metadata::class], version = 1, exportSchema = true)
-abstract class BabyDatabase: RoomDatabase() { abstract fun dao(): BabyDao }
+@Database(entities = [Profile::class, ActivityRecord::class, TimerRecord::class, TimerSegment::class, Attachment::class, Caregiver::class, Reminder::class, Metadata::class], version = 2, exportSchema = true)
+abstract class BabyDatabase: RoomDatabase() {
+    abstract fun dao(): BabyDao
+    companion object {
+        val MIGRATION_1_2=object: Migration(1,2) {
+            override fun migrate(database: SupportSQLiteDatabase) { database.execSQL("ALTER TABLE timers ADD COLUMN activityId TEXT NOT NULL DEFAULT ''") }
+        }
+    }
+}

@@ -139,4 +139,11 @@ class DeviceTest {
         compose.onNodeWithText("Save entry").performClick()
         compose.waitUntil(10000) {runBlocking {repo.dao.timers().singleOrNull()?.type=="Sleep" && repo.dao.activities().size==1}}
     }
+    @Test fun resumingCompletedFeedUpdatesTheSameEntry()=runBlocking {
+        val feed=ActivityRecord(id="resume-feed",profileId=child.id,type="Breastfeed",detail=codec.encodeToString(mapOf("[Breastfeed] Left Duration (Seconds)" to "300","[Breastfeed] Right Duration (Seconds)" to "120","[Breastfeed] Begin Side" to "LEFT","[Breastfeed] End Side" to "RIGHT")))
+        repo.save(feed);repo.resumeTimer(feed,"RIGHT")
+        val timer=repo.dao.timers().single();assertEquals(feed.id,timer.activityId);assertEquals(420_000,timer.accumulated)
+        repo.controlTimer(timer.id,"stop")
+        assertEquals(1,repo.dao.activities().size);val updated=repo.dao.activities().single();assertEquals(feed.id,updated.id);assertTrue(updated.duration()>=420)
+    }
 }

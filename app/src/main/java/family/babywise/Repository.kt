@@ -23,7 +23,7 @@ class BabyWiseApp: Application() {
     val repository by lazy { Repository(this) }
 }
 class Repository(val context: Context) {
-    val database = Room.databaseBuilder(context, BabyDatabase::class.java, "babywise.db").build()
+    val database = Room.databaseBuilder(context, BabyDatabase::class.java, "babywise.db").addMigrations(BabyDatabase.MIGRATION_1_2).build()
     val dao = database.dao()
     private val mutex = Mutex()
     suspend fun <T> exclusive(block: suspend () -> T): T = mutex.withLock { block() }
@@ -146,6 +146,16 @@ class Repository(val context: Context) {
         val now = System.currentTimeMillis()
         dao.put(TimerRecord(owner = owner, category = category, type = type, start = roundToNearestMinute(now), side = side, beginSide = side, anchorWall = now, anchorElapsed = SystemClock.elapsedRealtime(), boot = boot()))
     }
+    /** Continue a completed entry from its saved totals. Stopping the timer updates that same row. */
+    suspend fun resumeTimer(activity: ActivityRecord, side: String = "LEFT") = mutex.withLock {
+        val category=ActivityKinds.category(activity.type)
+        require(dao.timers().none {it.owner==activity.profileId.orEmpty() && it.category==category}) { "This profile already has an active $category session" }
+        val values=activity.values(); val left=values["[${activity.type}] Left Duration (Seconds)"].orEmpty().toLongOrNull()?.times(1000) ?: 0L
+        val right=values["[${activity.type}] Right Duration (Seconds)"].orEmpty().toLongOrNull()?.times(1000) ?: 0L
+        val total=when(activity.type) { "Breastfeed","Combo Feed" -> left+right; else -> activity.duration()*1000 }
+        val now=System.currentTimeMillis()
+        dao.put(TimerRecord(owner=activity.profileId.orEmpty(),category=category,type=activity.type,start=activity.start,side=side,beginSide=values["[${activity.type}] Begin Side"].orEmpty().ifBlank {side},anchorWall=now,anchorElapsed=SystemClock.elapsedRealtime(),boot=boot(),accumulated=total,left=left,right=right,activityId=activity.id))
+    }
     suspend fun controlTimer(id: String, action: String): ActivityRecord? = mutex.withLock {
         val t = dao.timers().find { it.id == id } ?: return@withLock null
         val now = System.currentTimeMillis(); val delta = elapsed(t) - t.accumulated
@@ -154,7 +164,9 @@ class Repository(val context: Context) {
             if(t.running) dao.put(TimerSegment(timerId = t.id, start = t.anchorWall, end = now, side = t.side, durationMs = delta))
             if(action == "stop") {
                 val total=roundToNearestMinute(t.accumulated + delta)
-                val values = mutableMapOf("duration" to (total/1000).toString(), "endEpoch" to roundToNearestMinute(now).toString(), "timerId" to t.id)
+                val values = dao.activities().find {it.id==t.activityId}?.values()?.toMutableMap() ?: mutableMapOf()
+                values["duration"] = (total/1000).toString(); values["endEpoch"] = roundToNearestMinute(now).toString()
+                if(t.activityId.isBlank()) values["timerId"] = t.id else values.remove("timerId")
                 when(t.type) {
                     "Breastfeed", "Combo Feed" -> {
                         values["[${t.type}] Left Duration (Seconds)"] = (roundToNearestMinute(left)/1000).toString(); values["[${t.type}] Right Duration (Seconds)"] = (roundToNearestMinute(right)/1000).toString()
@@ -163,7 +175,8 @@ class Repository(val context: Context) {
                     "Sleep", "Pump" -> values["[${t.type}] Duration (Seconds)"] = (total/1000).toString()
                 }
                 val who = caregiver()
-                val activity=ActivityRecord(profileId = t.owner.ifBlank { null }, type = t.type, start = t.start, creator = who, updater = who, detail = codec.encodeToString(values))
+                val prior=dao.activities().find {it.id==t.activityId}
+                val activity=prior?.copy(detail=codec.encodeToString(values),updater=who,dirty=true) ?: ActivityRecord(profileId = t.owner.ifBlank { null }, type = t.type, start = t.start, creator = who, updater = who, detail = codec.encodeToString(values))
                 dao.put(activity)
                 dao.deleteTimer(id)
                 activity
