@@ -20,7 +20,8 @@ import kotlinx.coroutines.withContext
 @Composable fun HistoryScreen(profile: Profile,profiles: List<Profile>,all: List<ActivityRecord>,photos: List<Attachment>,vm: AppViewModel,edit: (ActivityRecord)->Unit) {
     var date by remember(profile.id) {mutableStateOf(LocalDate.now())};var mode by remember {mutableStateOf("Day")}
     var filter by remember {mutableStateOf("All")};var query by remember {mutableStateOf("")};var notes by remember {mutableStateOf(false)};var withPhotos by remember {mutableStateOf(false)}
-    var compare by remember {mutableStateOf<Set<String>>(emptySet())};var byAge by remember {mutableStateOf(false)};var fitDay by remember {mutableStateOf(false)}
+    var compare by remember {mutableStateOf<Set<String>>(emptySet())};var byAge by remember {mutableStateOf(false)};var fitDay by remember {mutableStateOf(true)}
+    var filtersExpanded by remember {mutableStateOf(true)}
     var segments by remember {mutableStateOf<List<TimerSegment>>(emptyList())}
     LaunchedEffect(all) {segments=vm.repo.dao.segments()}
     val zone=ZoneId.systemDefault();val photoIds=photos.map {it.activityId}.toSet()
@@ -28,24 +29,29 @@ import kotlinx.coroutines.withContext
     val others=profiles.filter {it.id in compare};val ageAllowed=others.isNotEmpty() && !profile.adult && others.all {!it.adult && profile.birth.isNotBlank() && it.birth.isNotBlank()}
     Column(Modifier.fillMaxSize()) {
         Column(Modifier.padding(horizontal=16.dp)) {
-            Choices("",listOf("Day","Week","Photos"),mode) {mode=it}
+            Choices("",listOf("Day","Week","Photos"),mode) {mode=it; if(it=="Week") filtersExpanded=false}
             Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
                 TextButton(onClick={date=date.minusDays(if(mode=="Week") 7 else 1)}) {Text("‹")}
                 Text(date.format(DateTimeFormatter.ofPattern("MMM d, yyyy")),modifier=Modifier.weight(1f),fontFamily=FontFamily.Serif,fontSize=20.sp)
                 TextButton(onClick={date=LocalDate.now()}) {Text("Today")};TextButton(onClick={date=date.plusDays(if(mode=="Week") 7 else 1)}) {Text("›")}
             }
-            // Date picker also makes navigating imported years practical.
-            val context=androidx.compose.ui.platform.LocalContext.current
-            TextButton(onClick={android.app.DatePickerDialog(context,{_,y,m,d->date=LocalDate.of(y,m+1,d)},date.year,date.monthValue-1,date.dayOfMonth).show()}) {Text("Jump to date")}
-            Choices("Activity",listOf("All")+ActivityKinds.all,filter) {filter=it}
-            if(mode!="Week") Input("Search all notes and entries",query,{query=it})
-            Row(Modifier.horizontalScroll(rememberScrollState()),verticalAlignment=Alignment.CenterVertically) {
-                FilterChip(notes,{notes=!notes},label={Text("Has notes")});Spacer(Modifier.width(8.dp));FilterChip(withPhotos,{withPhotos=!withPhotos},label={Text("Has photos")})
+            TextButton(onClick={filtersExpanded=!filtersExpanded},modifier=Modifier.fillMaxWidth()) {
+                Text(if(filtersExpanded) "Hide filters  ▲" else "Show filters  ▼",modifier=Modifier.weight(1f))
             }
-            if(mode=="Week") {
-                Row(Modifier.horizontalScroll(rememberScrollState())) {FilterChip(compare.isEmpty(),{compare=emptySet()},label={Text("One profile")});profiles.filter {it.id!=profile.id}.forEach {p->FilterChip(p.id in compare,{compare=if(p.id in compare) compare-p.id else compare+p.id},label={Text("+ ${p.name}")},modifier=Modifier.padding(start=6.dp))}}
-                if(ageAllowed) Choices("Compare by",listOf("Calendar date","Same age"),if(byAge) "Same age" else "Calendar date") {byAge=it=="Same age"}
-                FilterChip(fitDay,{fitDay=!fitDay},label={Text(if(fitDay) "Full day fitted" else "Fit full day")})
+            if(filtersExpanded) {
+                // Date picker also makes navigating imported years practical.
+                val context=androidx.compose.ui.platform.LocalContext.current
+                TextButton(onClick={android.app.DatePickerDialog(context,{_,y,m,d->date=LocalDate.of(y,m+1,d)},date.year,date.monthValue-1,date.dayOfMonth).show()}) {Text("Jump to date")}
+                Choices("Activity",listOf("All")+ActivityKinds.all,filter) {filter=it}
+                if(mode!="Week") Input("Search all notes and entries",query,{query=it})
+                Row(Modifier.horizontalScroll(rememberScrollState()),verticalAlignment=Alignment.CenterVertically) {
+                    FilterChip(notes,{notes=!notes},label={Text("Has notes")});Spacer(Modifier.width(8.dp));FilterChip(withPhotos,{withPhotos=!withPhotos},label={Text("Has photos")})
+                }
+                if(mode=="Week") {
+                    Row(Modifier.horizontalScroll(rememberScrollState())) {FilterChip(compare.isEmpty(),{compare=emptySet()},label={Text("One profile")});profiles.filter {it.id!=profile.id}.forEach {p->FilterChip(p.id in compare,{compare=if(p.id in compare) compare-p.id else compare+p.id},label={Text("+ ${p.name}")},modifier=Modifier.padding(start=6.dp))}}
+                    if(ageAllowed) Choices("Compare by",listOf("Calendar date","Same age"),if(byAge) "Same age" else "Calendar date") {byAge=it=="Same age"}
+                    FilterChip(fitDay,{fitDay=!fitDay},label={Text(if(fitDay) "Full day fitted" else "Fit full day")})
+                }
             }
         }
         when(mode) {
