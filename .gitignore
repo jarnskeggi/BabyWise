@@ -1,5 +1,6 @@
 .tools/
 .gradle/
+.kotlin/
 **/build/
 local.properties
 .signing/
@@ -9,6 +10,7 @@ export_narababy_*.csv
 private-fixtures/
 Photos-*/
 captures/
+trends/
 .idea/
 *.iml
 artifacts/

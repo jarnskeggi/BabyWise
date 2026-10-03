@@ -8,6 +8,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.*
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.*
 import coil.compose.AsyncImage
 import java.io.File
@@ -94,7 +95,7 @@ import kotlinx.coroutines.withContext
     }
 }
 
-@Composable fun TrendsScreen(profile: Profile,records: List<ActivityRecord>,vm: AppViewModel,growth: ()->Unit) {
+@Composable private fun LegacyTrendsScreen(profile: Profile,records: List<ActivityRecord>,vm: AppViewModel,growth: ()->Unit) {
     var range by remember {mutableStateOf("7")};var end by remember {mutableStateOf(LocalDate.now())}
     var segments by remember {mutableStateOf<List<TimerSegment>>(emptyList())}
     LaunchedEffect(records) {segments=vm.repo.dao.segments()}
@@ -118,4 +119,175 @@ import kotlinx.coroutines.withContext
             Text("$unit · oldest → newest",fontSize=11.sp,color=Muted,modifier=Modifier.padding(top=8.dp))
         }
     } }
+}
+
+private enum class TrendUnit { COUNT, OUNCES, SECONDS }
+private data class TrendMetric(
+    val title: String,
+    val current: Double,
+    val previous: Double,
+    val daily: List<Double>,
+    val unit: TrendUnit,
+    val qualifier: String,
+    val color: Color,
+    val entries: List<ActivityRecord>,
+    val details: List<String> = emptyList()
+)
+private data class TrendGroup(val title: String,val color: Color,val metrics: List<TrendMetric>)
+
+/** A period is always compared with the immediately preceding period of the same length. */
+@Composable fun TrendsScreen(profile: Profile,records: List<ActivityRecord>,vm: AppViewModel,growth: ()->Unit) {
+    var range by remember {mutableStateOf("7")}; var end by remember {mutableStateOf(LocalDate.now())}
+    var segments by remember {mutableStateOf<List<TimerSegment>>(emptyList())}; var selected by remember {mutableStateOf<TrendMetric?>(null)}
+    LaunchedEffect(records) { segments=vm.repo.dao.segments() }
+    val days=range.toInt()
+    var current by remember {mutableStateOf<List<DailyStats>>(emptyList())}
+    var previous by remember {mutableStateOf<List<DailyStats>>(emptyList())}
+    LaunchedEffect(records,profile,segments,end,days) {
+        withContext(Dispatchers.Default) {
+            current=(0 until days).map { offset -> Analytics.day(records,end.minusDays((days-1-offset).toLong()),profile,segments=segments) }
+            previous=(0 until days).map { offset -> Analytics.day(records,end.minusDays((days*2-1-offset).toLong()),profile,segments=segments) }
+        }
+    }
+    val groups=remember(records,profile,end,days,current,previous) { buildTrendGroups(profile,records,end,days,current,previous) }
+    LazyColumn(contentPadding=PaddingValues(20.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
+        item {
+            Text("Trends",fontFamily=FontFamily.Serif,fontSize=32.sp)
+            Text("Compare each period with the one right before it.",color=Muted,modifier=Modifier.padding(top=3.dp,bottom=8.dp))
+            Choices("Range",listOf("1","7","14","30"),range) { range=it }
+            Row(verticalAlignment=Alignment.CenterVertically) {
+                TextButton(onClick={end=end.minusDays(days.toLong())}) {Text("‹")}
+                Text("Through ${end.format(DateTimeFormatter.ofPattern("MMM d, yyyy"))}",color=Muted,modifier=Modifier.weight(1f))
+                TextButton(onClick={end=LocalDate.now()}) {Text("Today")}
+                TextButton(onClick={end=end.plusDays(days.toLong())}) {Text("›")}
+            }
+        }
+        groups.forEach { group ->
+            item {Text(group.title,fontFamily=FontFamily.Serif,fontSize=27.sp,color=group.color,modifier=Modifier.padding(top=8.dp))}
+            items(group.metrics,key={group.title+it.title}) { metric -> TrendMetricCard(metric,days) {selected=metric} }
+        }
+        if(!profile.adult) item {OutlinedButton(onClick=growth,modifier=Modifier.fillMaxWidth().padding(top=8.dp)) {Text("Growth charts & measurements")}}
+    }
+    selected?.let { TrendDetail(it,days,end) {selected=null} }
+}
+
+@Composable private fun TrendMetricCard(metric: TrendMetric,days: Int,open: ()->Unit) {
+    val delta=metric.current-metric.previous
+    Card(Modifier.fillMaxWidth().clickable(onClick=open),colors=CardDefaults.cardColors(containerColor=Surface),border=BorderStroke(1.dp,metric.color.copy(alpha=.24f))) {
+        Row(Modifier.padding(18.dp),verticalAlignment=Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(metric.title,fontWeight=FontWeight.SemiBold,fontSize=17.sp)
+                Text(trendFormat(metric.current,metric.unit),fontFamily=FontFamily.Serif,fontSize=31.sp,color=metric.color,modifier=Modifier.padding(top=4.dp))
+                Text(metric.qualifier,color=Muted,fontSize=13.sp)
+                metric.details.take(2).forEach {Text(it,color=Muted,fontSize=13.sp,modifier=Modifier.padding(top=4.dp))}
+            }
+            if(metric.current != 0.0 || metric.previous != 0.0) TrendDelta(delta,metric.unit,days)
+        }
+    }
+}
+@Composable private fun TrendDelta(delta: Double,unit: TrendUnit,days: Int) {
+    val changed=if(delta>0) "↑" else if(delta<0) "↓" else "→"
+    val color=if(delta>0) Color(0xFF9FD89B) else if(delta<0) Color(0xFFF3B6A7) else Muted
+    Surface(shape=MaterialTheme.shapes.large,color=color.copy(alpha=.15f),modifier=Modifier.padding(start=10.dp)) {
+        Column(Modifier.padding(horizontal=9.dp,vertical=7.dp),horizontalAlignment=Alignment.CenterHorizontally) {
+            Text("$changed ${trendFormat(kotlin.math.abs(delta),unit)}",color=color,fontWeight=FontWeight.Bold)
+            Text("vs prior ${days}d",fontSize=10.sp,color=Muted)
+        }
+    }
+}
+
+@Composable private fun TrendDetail(metric: TrendMetric,days: Int,end: LocalDate,close: ()->Unit) {
+    var mode by remember(metric.title) {mutableStateOf("Graph")}
+    FullScreen(metric.title,close,metric.color) {
+        Column(Modifier.weight(1f).padding(horizontal=20.dp)) {
+            Text(trendFormat(metric.current,metric.unit),fontFamily=FontFamily.Serif,fontSize=39.sp,color=metric.color,modifier=Modifier.padding(top=18.dp))
+            Text(metric.qualifier,color=Muted)
+            val delta=metric.current-metric.previous
+            Text("${if(delta>=0) "Up" else "Down"} ${trendFormat(kotlin.math.abs(delta),metric.unit)} from the previous $days days",color=Muted,modifier=Modifier.padding(top=10.dp))
+            Choices("View",listOf("Graph","Calendar","Entries"),mode) {mode=it}
+            when(mode) {
+                "Graph" -> TrendBars(metric.daily,metric.color)
+                "Calendar" -> LazyColumn(Modifier.weight(1f)) { items(metric.daily.indices.toList()) { index ->
+                    val date=end.minusDays((metric.daily.size-1-index).toLong())
+                    Row(Modifier.fillMaxWidth().padding(vertical=14.dp)) {Text(date.format(DateTimeFormatter.ofPattern("EEE, MMM d")),Modifier.weight(1f));Text(trendFormat(metric.daily[index],metric.unit),color=metric.color,fontWeight=FontWeight.Bold)}
+                    HorizontalDivider(color=Muted.copy(alpha=.15f))
+                } }
+                else -> LazyColumn(Modifier.weight(1f)) {
+                    if(metric.entries.isEmpty()) item {Text("No matching entries in this period.",color=Muted,modifier=Modifier.padding(vertical=24.dp))}
+                    items(metric.entries,key={it.id}) {ActivityRow(it,{})}
+                }
+            }
+        }
+    }
+}
+@Composable private fun TrendBars(values: List<Double>,color: Color) {
+    val max=values.maxOrNull()?.takeIf {it>0} ?: 1.0
+    Column(Modifier.fillMaxWidth().padding(top=20.dp)) {
+        Row(Modifier.fillMaxWidth().height(220.dp),verticalAlignment=Alignment.Bottom,horizontalArrangement=Arrangement.spacedBy(5.dp)) {
+            values.forEach { value -> Box(Modifier.weight(1f).height((value/max*188).dp.coerceAtLeast(3.dp)).background(color)) }
+        }
+        Text("Oldest on the left • newest on the right",color=Muted,fontSize=12.sp,modifier=Modifier.padding(top=10.dp))
+    }
+}
+
+private fun trendFormat(value: Double,unit: TrendUnit): String = when(unit) {
+    TrendUnit.SECONDS -> displayDuration(value.toLong())
+    TrendUnit.OUNCES -> "${"%.1f".format(value)} oz"
+    TrendUnit.COUNT -> if(kotlin.math.abs(value - value.toInt()) < .05) value.toInt().toString() else "${"%.1f".format(value)}"
+}
+private fun isNight(record: ActivityRecord,profile: Profile,zone: ZoneId): Boolean {
+    val time=Instant.ofEpochMilli(record.start).atZone(zone).toLocalTime(); val minute=time.hour*60+time.minute
+    return if(profile.nightStart<profile.nightEnd) minute in profile.nightStart until profile.nightEnd else minute>=profile.nightStart || minute<profile.nightEnd
+}
+private fun averageDuration(records: List<ActivityRecord>): Double = if(records.isEmpty()) 0.0 else records.sumOf {it.duration()}.toDouble()/records.size
+private fun averageGap(records: List<ActivityRecord>): Double = records.sortedBy {it.start}.zipWithNext().map {(it.second.start-it.first.start)/1000.0}.average().takeUnless {it.isNaN()} ?: 0.0
+private fun wakeWindows(records: List<ActivityRecord>): Double = records.sortedBy {it.start}.zipWithNext().map {(it.second.start-(it.first.start+it.first.duration()*1000)).coerceAtLeast(0)/1000.0}.average().takeUnless {it.isNaN()} ?: 0.0
+
+private fun buildTrendGroups(profile: Profile,records: List<ActivityRecord>,end: LocalDate,days: Int,now: List<DailyStats>,before: List<DailyStats>): List<TrendGroup> {
+    val zone=ZoneId.systemDefault(); val from=end.minusDays((days-1).toLong()).atStartOfDay(zone).toInstant().toEpochMilli(); val until=end.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli()
+    val oldFrom=end.minusDays((days*2-1).toLong()).atStartOfDay(zone).toInstant().toEpochMilli()
+    fun entries(types: Set<String>,old: Boolean=false): List<ActivityRecord> = records.filter {it.type in types && it.start in (if(old) oldFrom until from else from until until)}.sortedByDescending {it.start}
+    fun longValues(get: (DailyStats)->Long): Pair<Double,Double> = now.sumOf(get).toDouble() to before.sumOf(get).toDouble()
+    fun doubleValues(get: (DailyStats)->Double): Pair<Double,Double> = now.sumOf(get) to before.sumOf(get)
+    fun longDaily(get: (DailyStats)->Long)=now.map {get(it).toDouble()}
+    fun doubleDaily(get: (DailyStats)->Double)=now.map(get)
+    val feeds=entries(setOf("Breastfeed","Bottle Feed","Combo Feed","Solid Feed")); val oldFeeds=entries(setOf("Breastfeed","Bottle Feed","Combo Feed","Solid Feed"),true)
+    val nursing=entries(setOf("Breastfeed","Combo Feed")); val oldNursing=entries(setOf("Breastfeed","Combo Feed"),true)
+    val bottles=entries(setOf("Bottle Feed","Combo Feed")); val oldBottles=entries(setOf("Bottle Feed","Combo Feed"),true)
+    val breast=longValues {it.breastSeconds}; val breastDay=longValues {it.breastSeconds-it.breastNightSeconds}; val breastNight=longValues {it.breastNightSeconds}; val feedCount=now.sumOf {it.feeds}.toDouble() to before.sumOf {it.feeds}.toDouble(); val bottle=doubleValues {it.bottleMl/29.5735295625}
+    val sleeps=entries(setOf("Sleep")); val oldSleeps=entries(setOf("Sleep"),true); val sleep=longValues {it.sleepSeconds}; val sleepDay=longValues {it.sleepSeconds-it.sleepNightSeconds}; val sleepNight=longValues {it.sleepNightSeconds}
+    val naps=sleeps.filter {!isNight(it,profile,zone)}; val oldNaps=oldSleeps.filter {!isNight(it,profile,zone)}
+    val diapers=entries(setOf("Diaper")); val oldDiapers=entries(setOf("Diaper"),true); val diaper=now.sumOf {it.diapers}.toDouble() to before.sumOf {it.diapers}.toDouble()
+    val pumps=entries(setOf("Pump")); val oldPumps=entries(setOf("Pump"),true); val pump=doubleValues {it.pumpMl/29.5735295625}
+    return listOf(
+        TrendGroup("Feed",accent("Feed"),listOf(
+            TrendMetric("Feed sessions",feedCount.first/days,feedCount.second/days,now.map {it.feeds.toDouble()},TrendUnit.COUNT,"per day",accent("Feed"),feeds,listOf("${nursing.size} breast • ${bottles.size} bottle/combination")),
+            TrendMetric("Total breastfeeding",breast.first,breast.second,longDaily {it.breastSeconds},TrendUnit.SECONDS,"total over $days day${if(days==1) "" else "s"}",accent("Feed"),nursing,listOf("Daytime ${displayDuration(breastDay.first.toLong())} • Nighttime ${displayDuration(breastNight.first.toLong())}")),
+            TrendMetric("Daytime breastfeeding",breastDay.first,breastDay.second,longDaily {it.breastSeconds-it.breastNightSeconds},TrendUnit.SECONDS,"total",accent("Feed"),nursing),
+            TrendMetric("Nighttime breastfeeding",breastNight.first,breastNight.second,longDaily {it.breastNightSeconds},TrendUnit.SECONDS,"total",accent("Feed"),nursing),
+            TrendMetric("Breastfeeding session length",if(nursing.isEmpty()) 0.0 else breast.first/nursing.size,if(oldNursing.isEmpty()) 0.0 else breast.second/oldNursing.size,List(days){if(nursing.isEmpty()) 0.0 else breast.first/days/nursing.size},TrendUnit.SECONDS,"average",accent("Feed"),nursing),
+            TrendMetric("Amount bottlefed",bottle.first,bottle.second,doubleDaily {it.bottleMl/29.5735295625},TrendUnit.OUNCES,"total",accent("Feed"),bottles),
+            TrendMetric("Bottle size",if(bottles.isEmpty()) 0.0 else bottle.first/bottles.size,if(oldBottles.isEmpty()) 0.0 else bottle.second/oldBottles.size,List(days){if(bottles.isEmpty()) 0.0 else bottle.first/days/bottles.size},TrendUnit.OUNCES,"average",accent("Feed"),bottles),
+            TrendMetric("Time between feedings",averageGap(feeds),averageGap(oldFeeds),List(days){averageGap(feeds)},TrendUnit.SECONDS,"average",accent("Feed"),feeds)
+        )),
+        TrendGroup("Sleep",accent("Sleep"),listOf(
+            TrendMetric("Total sleep",sleep.first,sleep.second,longDaily {it.sleepSeconds},TrendUnit.SECONDS,"total over $days day${if(days==1) "" else "s"}",accent("Sleep"),sleeps),
+            TrendMetric("Daytime sleep",sleepDay.first,sleepDay.second,longDaily {it.sleepSeconds-it.sleepNightSeconds},TrendUnit.SECONDS,"total",accent("Sleep"),sleeps),
+            TrendMetric("Nighttime sleep",sleepNight.first,sleepNight.second,longDaily {it.sleepNightSeconds},TrendUnit.SECONDS,"total",accent("Sleep"),sleeps),
+            TrendMetric("Longest sleep",(sleeps.maxOfOrNull {it.duration()} ?: 0).toDouble(),(oldSleeps.maxOfOrNull {it.duration()} ?: 0).toDouble(),List(days){(sleeps.maxOfOrNull {it.duration()} ?: 0).toDouble()},TrendUnit.SECONDS,"single stretch",accent("Sleep"),sleeps),
+            TrendMetric("Daytime naps",naps.size.toDouble()/days,oldNaps.size.toDouble()/days,List(days){naps.size.toDouble()/days},TrendUnit.COUNT,"per day",accent("Sleep"),naps),
+            TrendMetric("Daytime nap length",averageDuration(naps),averageDuration(oldNaps),List(days){averageDuration(naps)},TrendUnit.SECONDS,"average",accent("Sleep"),naps),
+            TrendMetric("Wake window",wakeWindows(sleeps),wakeWindows(oldSleeps),List(days){wakeWindows(sleeps)},TrendUnit.SECONDS,"average",accent("Sleep"),sleeps)
+        )),
+        TrendGroup("Diapers",accent("Diaper"),listOf(
+            TrendMetric("Total diapers",diaper.first,diaper.second,longDaily {it.diapers.toLong()},TrendUnit.COUNT,"total",accent("Diaper"),diapers),
+            TrendMetric("Daytime diapers",diapers.count {!isNight(it,profile,zone)}.toDouble(),oldDiapers.count {!isNight(it,profile,zone)}.toDouble(),List(days){diapers.count {!isNight(it,profile,zone)}.toDouble()/days},TrendUnit.COUNT,"total",accent("Diaper"),diapers.filter {!isNight(it,profile,zone)}),
+            TrendMetric("Nighttime diapers",diapers.count {isNight(it,profile,zone)}.toDouble(),oldDiapers.count {isNight(it,profile,zone)}.toDouble(),List(days){diapers.count {isNight(it,profile,zone)}.toDouble()/days},TrendUnit.COUNT,"total",accent("Diaper"),diapers.filter {isNight(it,profile,zone)})
+        )),
+        TrendGroup("Pumping",accent("Pump"),listOf(
+            TrendMetric("Pump sessions",pumps.size.toDouble()/days,oldPumps.size.toDouble()/days,List(days){pumps.size.toDouble()/days},TrendUnit.COUNT,"per day",accent("Pump"),pumps),
+            TrendMetric("Amount pumped",pump.first,pump.second,doubleDaily {it.pumpMl/29.5735295625},TrendUnit.OUNCES,"total",accent("Pump"),pumps),
+            TrendMetric("Total pump time",pumps.sumOf {it.duration()}.toDouble(),oldPumps.sumOf {it.duration()}.toDouble(),List(days){pumps.sumOf {it.duration()}.toDouble()/days},TrendUnit.SECONDS,"total",accent("Pump"),pumps)
+        ))
+    )
 }

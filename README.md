@@ -14,7 +14,7 @@ Updates must use the same signing key and application ID. Keep the entire ignore
 - Use the plus button on an activity card to start a timer or enter a completed activity. Breastfeeding and combination feeds support switching sides. Bottle sessions can be timed, then edited to add milk quantities.
 - Active sessions survive profile changes and process termination. Use their cards or notifications to pause, resume, switch sides, or stop and save. Android force-stop prevents notifications until the app is reopened; elapsed state is recovered then.
 - History provides lists, a weekly timeline, searchable notes, photo history, and calendar-date or same-age comparison. Use **Jump to date** to reach older imported records. Search and note/photo filters search across dates.
-- Trends show daily counts, durations and milk amounts. Durations are split at midnight and profile-specific nighttime boundaries. Growth references are available for supported ages and known sex/birth date.
+- Trends break feeding, sleep, diapers and pumping into individual measures. Choose 1, 7, 14 or 30 days to compare each measure with the immediately preceding period, then tap a card for its graph, calendar and matching entries. Durations are split at midnight and profile-specific nighttime boundaries. Growth references are available for supported ages and known sex/birth date.
 - Family contains profiles, caregiver name, reminders and data transfer. An archived profile remains available for editing/export; unarchive it to resume tracking.
 - Reminders are inexact, optional Android notifications. Battery restrictions and force-stop can delay or suppress delivery. They are logging conveniences, not medical alarms.
 
