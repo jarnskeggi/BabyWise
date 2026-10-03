@@ -127,4 +127,16 @@ class DeviceTest {
         compose.onNodeWithText("Save entry").performClick()
         compose.waitUntil(10000) {runBlocking {repo.dao.activities().singleOrNull()?.duration()==3600L}}
     }
+    @Test fun editingCompletedEntryNeverStopsAnActiveTimer() {
+        runBlocking {
+            repo.save(ActivityRecord(id="sleep-edit-active",profileId=child.id,type="Sleep",detail=codec.encodeToString(mapOf("duration" to "3600","[Sleep] Duration (Seconds)" to "3600"))))
+            // A paused pending timer exercises the same editor branch without starting a
+            // foreground service that would keep this instrumentation process alive.
+            repo.dao.put(TimerRecord(id="paused-sleep",owner=child.id,category="Sleep",type="Sleep",start=1_000,anchorWall=1_000,anchorElapsed=1_000,boot=repo.boot(),running=false))
+        }
+        compose.waitUntil(20000) {compose.onAllNodesWithText("Last sleep").fetchSemanticsNodes().isNotEmpty()}
+        compose.onNodeWithText("Last sleep").performClick()
+        compose.onNodeWithText("Save entry").performClick()
+        compose.waitUntil(10000) {runBlocking {repo.dao.timers().singleOrNull()?.type=="Sleep" && repo.dao.activities().size==1}}
+    }
 }

@@ -162,7 +162,10 @@ import java.time.format.DateTimeFormatter
         }
         Button(onClick={
             try {
-                if(activeTimer!=null) { vm.finishTimer(activeTimer.id,note,photos) {close()}; return@Button }
+                // A timer is actionable only while creating a new entry. Previously this
+                // branch also ran when editing a completed entry, silently saving the timer
+                // and discarding the edit that the user had just made.
+                if(!persisted && activeTimer!=null) { vm.finishTimer(activeTimer.id,note,photos) {close()}; return@Button }
                 val numeric=values.filterKeys {it.contains("Duration") || it.endsWith(" Volume") || it in listOf("[Growth] Weight","[Growth] Height","[Growth] Head Size","[Medical] Temperature")}
                 require(numeric.values.all {it.isBlank() || it.toDoubleOrNull()?.let {n->n.isFinite() && n>=0}==true}) {"Enter valid non-negative numbers"}
                 if(original.type=="Sleep") {
@@ -187,7 +190,7 @@ import java.time.format.DateTimeFormatter
                 val a=original.copy(start=start,note=note,detail=codec.encodeToString(values.toMap()),dirty=true)
                 vm.work("Entry saved") {vm.repo.save(a,photos,removedPhotos);kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {close()}}
             } catch(e: Exception) {error=e.message.orEmpty()}
-        },modifier=Modifier.fillMaxWidth().padding(16.dp),colors=ButtonDefaults.buttonColors(containerColor=if(activeTimer!=null) Color(0xFFFF6425) else Blue)) {Text(if(activeTimer!=null) "Stop & save timer" else "Save entry")}
+        },modifier=Modifier.fillMaxWidth().padding(16.dp),colors=ButtonDefaults.buttonColors(containerColor=if(!persisted && activeTimer!=null) Color(0xFFFF6425) else Blue)) {Text(if(!persisted && activeTimer!=null) "Stop & save timer" else "Save entry")}
     }
     if(deleting) AlertDialog(onDismissRequest={deleting=false},title={Text("Delete this entry?")},text={Text("This removes the entry and its attached photos from this phone.")},confirmButton={TextButton(onClick={vm.work("Entry deleted") {vm.repo.delete(original)};close()}) {Text("Delete")}},dismissButton={TextButton(onClick={deleting=false}) {Text("Cancel")}})
 }
