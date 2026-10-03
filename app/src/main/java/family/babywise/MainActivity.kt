@@ -155,6 +155,7 @@ class MainActivity: ComponentActivity() {
         items(groups,key={it.key}) { (name,types) ->
             val recent=records.filter { it.type in types }; var expanded by rememberSaveable(p.id,name) { mutableStateOf(false) }
             val enabledTypes=types.filter { "$name/$it" !in hidden }
+            val active=timers.firstOrNull { timer -> (name=="Feed" && timer.category=="feed") || timer.category==name }
             Card(shape=RoundedCornerShape(22.dp),colors=CardDefaults.cardColors(containerColor=Surface)) {
                 Row(Modifier.fillMaxWidth().background(accent(name)).padding(horizontal=18.dp,vertical=8.dp),verticalAlignment=Alignment.CenterVertically) {
                     Text(name,fontFamily=FontFamily.Serif,fontSize=32.sp,color=Ink,modifier=Modifier.weight(1f))
@@ -162,9 +163,9 @@ class MainActivity: ComponentActivity() {
                 }
                 Row(Modifier.fillMaxWidth().padding(20.dp).clickable { if(name=="Growth") growth() else recent.firstOrNull()?.let(edit) },verticalAlignment=Alignment.CenterVertically) {
                     Icon(icon(name),null,tint=accent(name),modifier=Modifier.size(48.dp));Spacer(Modifier.width(18.dp))
-                    Column(Modifier.weight(1f)) { Text(if(name=="Sleep") "Last sleep" else if(name=="Feed") "Last feeding" else "Last ${name.lowercase().removeSuffix("s")}",fontFamily=FontFamily.Serif,fontSize=22.sp)
-                        Text(recent.firstOrNull()?.let { ago(it.start) } ?: "Ready when you are",color=Muted,modifier=Modifier.padding(top=6.dp))
-                        recent.firstOrNull()?.let { Text(summary(it),color=accent(name),modifier=Modifier.padding(top=8.dp)) }
+                    Column(Modifier.weight(1f)) { Text(if(active!=null) "Timer in progress" else if(name=="Sleep") "Last sleep" else if(name=="Feed") "Last feeding" else "Last ${name.lowercase().removeSuffix("s")}",fontFamily=FontFamily.Serif,fontSize=22.sp)
+                        Text(if(active!=null) "Live time is shown below" else recent.firstOrNull()?.let { ago(it.start) } ?: "Ready when you are",color=Muted,modifier=Modifier.padding(top=6.dp))
+                        if(active==null) recent.firstOrNull()?.let { Text(summary(it),color=accent(name),modifier=Modifier.padding(top=8.dp)) }
                         if(name=="Feed") recent.firstOrNull {it.type in listOf("Breastfeed","Combo Feed")}?.let { nursing ->
                             val side=nursing.values()["[${nursing.type}] End Side"].orEmpty()
                             if(side.isNotBlank()) Row(Modifier.fillMaxWidth().padding(top=12.dp),verticalAlignment=Alignment.CenterVertically) {
@@ -174,7 +175,6 @@ class MainActivity: ComponentActivity() {
                         }
                     }
                 }
-                val active=timers.firstOrNull { timer -> (name=="Feed" && timer.category=="feed") || (name=="Sleep" && timer.category=="Sleep") }
                 if(active!=null) {
                     HorizontalDivider(color=Muted.copy(alpha=.2f))
                     InlineTimerStatus(active,vm) { edit(records.firstOrNull {it.id==active.activityId} ?: ActivityRecord(profileId=active.owner.ifBlank { p.id },type=active.type)) }

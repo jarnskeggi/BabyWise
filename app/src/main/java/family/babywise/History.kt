@@ -187,13 +187,12 @@ private data class TrendGroup(val title: String,val color: Color,val metrics: Li
                 Text(metric.qualifier,color=Muted,fontSize=13.sp)
                 metric.details.take(2).forEach {Text(it,color=Muted,fontSize=13.sp,modifier=Modifier.padding(top=4.dp))}
             }
-            if(metric.current != 0.0 || metric.previous != 0.0) TrendDelta(delta,metric.unit,days)
+            if(metric.current != 0.0 || metric.previous != 0.0) TrendDelta(delta,metric.unit,days,metric.color)
         }
     }
 }
-@Composable private fun TrendDelta(delta: Double,unit: TrendUnit,days: Int) {
+@Composable private fun TrendDelta(delta: Double,unit: TrendUnit,days: Int,color: Color) {
     val changed=if(delta>0) "↑" else if(delta<0) "↓" else "→"
-    val color=if(delta>0) Color(0xFF9FD89B) else if(delta<0) Color(0xFFF3B6A7) else Muted
     Surface(shape=MaterialTheme.shapes.large,color=color.copy(alpha=.15f),modifier=Modifier.padding(start=10.dp)) {
         Column(Modifier.padding(horizontal=9.dp,vertical=7.dp),horizontalAlignment=Alignment.CenterHorizontally) {
             Text("$changed ${trendFormat(kotlin.math.abs(delta),unit)}",color=color,fontWeight=FontWeight.Bold)
@@ -213,17 +212,36 @@ private data class TrendGroup(val title: String,val color: Color,val metrics: Li
             Choices("View",listOf("Graph","Calendar","Entries"),mode) {mode=it}
             when(mode) {
                 "Graph" -> TrendBars(metric.daily,metric.color)
-                "Calendar" -> LazyColumn(Modifier.weight(1f)) { items(metric.daily.indices.toList()) { index ->
-                    val date=end.minusDays((metric.daily.size-1-index).toLong())
-                    Row(Modifier.fillMaxWidth().padding(vertical=14.dp)) {Text(date.format(DateTimeFormatter.ofPattern("EEE, MMM d")),Modifier.weight(1f));Text(trendFormat(metric.daily[index],metric.unit),color=metric.color,fontWeight=FontWeight.Bold)}
-                    HorizontalDivider(color=Muted.copy(alpha=.15f))
-                } }
+                "Calendar" -> TrendCalendar(metric,end,Modifier.weight(1f))
                 else -> LazyColumn(Modifier.weight(1f)) {
                     if(metric.entries.isEmpty()) item {Text("No matching entries in this period.",color=Muted,modifier=Modifier.padding(vertical=24.dp))}
                     items(metric.entries,key={it.id}) {ActivityRow(it,{})}
                 }
             }
         }
+    }
+}
+@Composable private fun TrendCalendar(metric: TrendMetric,end: LocalDate,modifier: Modifier=Modifier) {
+    val first=end.minusDays((metric.daily.size-1).toLong())
+    val firstGrid=first.minusDays((first.dayOfWeek.value % 7).toLong())
+    val lastGrid=end.plusDays(((7-end.dayOfWeek.value % 7)%7).toLong())
+    val values=(0 until metric.daily.size).associate { index -> end.minusDays((metric.daily.size-1-index).toLong()) to metric.daily[index] }
+    val dates=generateSequence(firstGrid) {if(it<lastGrid) it.plusDays(1) else null}.toList()
+    Column(modifier.verticalScroll(rememberScrollState()).padding(top=12.dp,bottom=20.dp)) {
+        Text(first.format(DateTimeFormatter.ofPattern("MMMM yyyy")),fontFamily=FontFamily.Serif,fontSize=24.sp,modifier=Modifier.padding(bottom=10.dp))
+        Row(Modifier.fillMaxWidth()) { listOf("Sun","Mon","Tue","Wed","Thu","Fri","Sat").forEach {day -> Text(day,Modifier.weight(1f),textAlign=androidx.compose.ui.text.style.TextAlign.Center,fontSize=11.sp,color=Muted) } }
+        dates.chunked(7).forEach { week ->
+            Row(Modifier.fillMaxWidth().padding(top=5.dp)) { week.forEach { date ->
+                val value=values[date]; val inPeriod=value!=null
+                Box(Modifier.weight(1f).height(78.dp).padding(2.dp).background(if(inPeriod) Surface else Color.Transparent),contentAlignment=Alignment.TopStart) {
+                    Column(Modifier.padding(6.dp)) {
+                        Text(date.dayOfMonth.toString(),fontWeight=if(inPeriod) FontWeight.Bold else FontWeight.Normal,color=if(inPeriod) Color.White else Muted.copy(alpha=.38f),fontSize=13.sp)
+                        if(inPeriod) Text(trendFormat(value!!,metric.unit),color=metric.color,fontWeight=FontWeight.Bold,fontSize=11.sp,lineHeight=13.sp,modifier=Modifier.padding(top=8.dp))
+                    }
+                }
+            } }
+        }
+        Text("Each cell is that day’s ${metric.title.lowercase()}.",color=Muted,fontSize=12.sp,modifier=Modifier.padding(top=12.dp))
     }
 }
 @Composable private fun TrendBars(values: List<Double>,color: Color) {

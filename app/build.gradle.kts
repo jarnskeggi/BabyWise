@@ -8,7 +8,7 @@ plugins {
 android {
     namespace = "family.babywise"
     compileSdk = 35
-    defaultConfig { applicationId = "family.babywise"; minSdk = 26; targetSdk = 35; versionCode = 10; versionName = "1.0.9"; testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner" }
+    defaultConfig { applicationId = "family.babywise"; minSdk = 26; targetSdk = 35; versionCode = 11; versionName = "1.0.10"; testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner" }
     signingConfigs {
         create("family") {
             storeFile = rootProject.file(".signing/babywise.jks")

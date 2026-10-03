@@ -37,7 +37,7 @@ class TimerService: Service() {
                     val open = PendingIntent.getActivity(this@TimerService,0,Intent(this@TimerService,MainActivity::class.java),PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
                     val n = NotificationCompat.Builder(this@TimerService,"timers").setSmallIcon(R.drawable.ic_notification)
                         .setContentTitle("${profiles[t.owner]?.name ?: "Family"} · ${t.type}")
-                        .setContentText("${if(t.running) t.side.lowercase().takeIf { t.type in listOf("Breastfeed","Combo Feed") } ?: "Timing" else "Paused"} · ${displayTimerDuration(repo.elapsed(t)/1000)}")
+                        .setContentText(if(t.running) t.side.lowercase().takeIf { t.type in listOf("Breastfeed","Combo Feed") } ?: "Timing" else "Paused")
                         .setContentIntent(open).setOngoing(true).setOnlyAlertOnce(true)
                         .setWhen(System.currentTimeMillis()-repo.elapsed(t)).setUsesChronometer(t.running)
                     fun action(label: String, action: String) {
