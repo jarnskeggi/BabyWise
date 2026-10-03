@@ -1,0 +1,14 @@
+.tools/
+.gradle/
+**/build/
+local.properties
+.signing/
+*.jks
+*.keystore
+export_narababy_*.csv
+private-fixtures/
+Photos-*/
+captures/
+.idea/
+*.iml
+artifacts/
