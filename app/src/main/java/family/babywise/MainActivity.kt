@@ -131,7 +131,7 @@ class MainActivity: ComponentActivity() {
         Surface(Modifier.fillMaxSize(),color=Ink) { Column { Row(Modifier.fillMaxWidth().background(headerColor).padding(12.dp),verticalAlignment=Alignment.CenterVertically) { IconButton(onClick=close) { Icon(Icons.Outlined.Close,"Close",tint=Ink.takeIf { headerColor!=Ink } ?: Color.White) };Text(title,fontSize=28.sp,fontFamily=FontFamily.Serif,color=Ink.takeIf { headerColor!=Ink } ?: Color.White,modifier=Modifier.weight(1f)) }; content() } }
     }
 }
-@Composable fun DailySummary(profile: Profile,records: List<ActivityRecord>,timers: List<TimerRecord>,close: () -> Unit) {
+@Composable private fun LegacyDailySummary(profile: Profile,records: List<ActivityRecord>,timers: List<TimerRecord>,close: () -> Unit) {
     val zone=ZoneId.systemDefault(); val start=LocalDate.now(zone).atStartOfDay(zone).toInstant().toEpochMilli()
     val today=records.filter {it.start>=start}; val feeds=today.count {it.type in ActivityKinds.groups.getValue("Feed")}; val diapers=today.count {it.type=="Diaper"}; val sleep=today.filter {it.type=="Sleep"}.sumOf {it.duration()}
     FullScreen("Today · ${profile.name}",close,accent("Sleep")) {
@@ -141,6 +141,39 @@ class MainActivity: ComponentActivity() {
             SummaryTile("Diapers",diapers.toString(),accent("Diaper"))
             SummaryTile("Sleep",displayDuration(sleep),accent("Sleep"))
             if(timers.isNotEmpty()) { Text("Currently timing",fontSize=18.sp,fontWeight=FontWeight.SemiBold,modifier=Modifier.padding(top=12.dp));timers.forEach {t->Text("${t.type} · ${if(t.running) "running" else "paused"}",color=Muted,modifier=Modifier.padding(vertical=4.dp))} }
+        }
+    }
+}
+@Composable fun DailySummary(profile: Profile,records: List<ActivityRecord>,timers: List<TimerRecord>,close: () -> Unit) {
+    var range by remember(profile.id) {mutableStateOf("Today")}
+    val zone=ZoneId.systemDefault(); val now=System.currentTimeMillis()
+    val start=if(range=="Today") LocalDate.now(zone).atStartOfDay(zone).toInstant().toEpochMilli() else now-24*60*60*1000L
+    // A shared pump belongs in Mom's summary, never in a child's activity totals.
+    val relevant=records.filter {it.profileId==profile.id || profile.adult && it.profileId==null && it.type=="Pump"}
+    val entries=relevant.filter {it.start in start until now}
+    val feeds=entries.count {it.type in ActivityKinds.groups.getValue("Feed")}
+    val diapers=entries.count {it.type=="Diaper"}
+    val sleepSeconds=relevant.filter {it.type=="Sleep"}.sumOf { activity -> (minOf(activity.start+activity.duration()*1000,now)-maxOf(activity.start,start)).coerceAtLeast(0)/1000 }
+    val pumps=entries.filter {it.type=="Pump"}; val pumpedOz=pumps.sumOf {Analytics.volume(it)}/29.5735295625
+    val activeTimers=timers.filter {it.owner==profile.id || profile.adult && it.owner.isBlank()}
+    FullScreen("Summary - ${profile.name}",close,accent("Sleep")) {
+        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(24.dp),verticalArrangement=Arrangement.spacedBy(14.dp)) {
+            Choices("",listOf("Today","Last 24 hours"),range) {range=it}
+            Text(if(range=="Today") "Since midnight" else "The previous 24 hours",color=Muted)
+            if(profile.adult) {
+                SummaryTile("Sleep",displayDuration(sleepSeconds),accent("Sleep"))
+                SummaryTile("Pump sessions",pumps.size.toString(),accent("Pump"))
+                SummaryTile("Amount pumped","${"%.1f".format(pumpedOz)} oz",accent("Pump"))
+            } else {
+                SummaryTile("Feeds",feeds.toString(),accent("Feed"))
+                SummaryTile("Diapers",diapers.toString(),accent("Diaper"))
+                SummaryTile("Sleep",displayDuration(sleepSeconds),accent("Sleep"))
+            }
+            if(entries.isEmpty() && sleepSeconds==0L) Text("No activity in this time period.",color=Muted,modifier=Modifier.padding(top=12.dp))
+            if(activeTimers.isNotEmpty()) {
+                Text("Currently timing",fontSize=18.sp,fontWeight=FontWeight.SemiBold,modifier=Modifier.padding(top=12.dp))
+                activeTimers.forEach {t->Text("${t.type}: ${if(t.running) "running" else "paused"}",color=Muted,modifier=Modifier.padding(vertical=4.dp))}
+            }
         }
     }
 }
@@ -164,7 +197,7 @@ class MainActivity: ComponentActivity() {
                 Row(Modifier.fillMaxWidth().padding(20.dp).clickable { if(name=="Growth") growth() else recent.firstOrNull()?.let(edit) },verticalAlignment=Alignment.CenterVertically) {
                     Icon(icon(name),null,tint=accent(name),modifier=Modifier.size(48.dp));Spacer(Modifier.width(18.dp))
                     Column(Modifier.weight(1f)) { Text(if(active!=null) "Timer in progress" else if(name=="Sleep") "Last sleep" else if(name=="Feed") "Last feeding" else "Last ${name.lowercase().removeSuffix("s")}",fontFamily=FontFamily.Serif,fontSize=22.sp)
-                        Text(if(active!=null) "Live time is shown below" else recent.firstOrNull()?.let { ago(it.start) } ?: "Ready when you are",color=Muted,modifier=Modifier.padding(top=6.dp))
+                        Text(if(active!=null) "Live time is shown below" else recent.firstOrNull()?.let { ago(if(it.type=="Sleep") it.start+it.duration()*1000 else it.start) } ?: "Ready when you are",color=Muted,modifier=Modifier.padding(top=6.dp))
                         if(active==null) recent.firstOrNull()?.let { Text(summary(it),color=accent(name),modifier=Modifier.padding(top=8.dp)) }
                         if(name=="Feed") recent.firstOrNull {it.type in listOf("Breastfeed","Combo Feed")}?.let { nursing ->
                             val side=nursing.values()["[${nursing.type}] End Side"].orEmpty()

@@ -10,7 +10,8 @@ Updates must use the same signing key and application ID. Keep the entire ignore
 
 ## Using the app
 
-- Tap the profile name to switch between children and mom. Each has an independent history. Pumping records are shared family records.
+- Tap the profile name to switch between children and mom. Each has an independent history. Pumping records are shared family records and appear in Mom's summary.
+- The Summary button shows the active profile's totals for either today or the previous 24 hours. Child summaries include feeds, diapers and sleep; Mom's replaces diapers with pumping.
 - Use the plus button on an activity card to start a timer or enter a completed activity. Breastfeeding and combination feeds support switching sides. Bottle sessions can be timed, then edited to add milk quantities.
 - Active sessions survive profile changes and process termination. Use their cards or notifications to pause, resume, switch sides, or stop and save. Android force-stop prevents notifications until the app is reopened; elapsed state is recovered then.
 - History provides lists, a weekly timeline, searchable notes, photo history, and calendar-date or same-age comparison. Week view starts with its controls collapsed and a compact full-day timeline; use **Show filters** to change activity, comparisons, or fitting. Use **Jump to date** to reach older imported records. Search and note/photo filters search across dates.
