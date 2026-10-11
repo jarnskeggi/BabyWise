@@ -74,6 +74,20 @@ class CoreTest {
     }
     @Test fun ouncesConvertExactly() {assertEquals(29.5735295625,Analytics.volumeMl("1","FLOZ"),1e-10)}
     @Test fun combinedDiaperCountsOnceAndBothCategories() {val start=LocalDate.now().atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli();val a=ActivityRecord(type="Diaper",start=start,detail=codec.encodeToString(mapOf("[Diaper] Type" to "Dirty Wet")));val stats=Analytics.day(listOf(a),LocalDate.now(),Profile(name="Test"));assertEquals(1,stats.diapers);assertEquals(1,stats.wet);assertEquals(1,stats.dirty)}
+    @Test fun summaryUsesOnlyTheSelectedChildAndKeepsSharedPumpsWithMom() {
+        val child=Profile(id="child",name="Child"); val mom=Profile(id="mom",name="Mom",adult=true)
+        val records=listOf(
+            ActivityRecord(id="feed",profileId="child",type="Breastfeed",start=2_000),
+            ActivityRecord(id="diaper",profileId="child",type="Diaper",start=3_000),
+            ActivityRecord(id="sleep",profileId="child",type="Sleep",start=500,detail=codec.encodeToString(mapOf("duration" to "5"))),
+            ActivityRecord(id="mom-sleep",profileId="mom",type="Sleep",start=4_000,detail=codec.encodeToString(mapOf("duration" to "2"))),
+            ActivityRecord(id="pump",profileId=null,type="Pump",start=5_000,detail=codec.encodeToString(mapOf("[Pump] Total Volume" to "4","[Pump] Total Volume Unit" to "ML")))
+        )
+        val childSummary=Analytics.summary(records,child,1_000,8_000)
+        assertEquals(1,childSummary.feeds);assertEquals(1,childSummary.diapers);assertEquals(4,childSummary.sleepSeconds);assertEquals(0,childSummary.pumpSessions)
+        val momSummary=Analytics.summary(records,mom,1_000,8_000)
+        assertEquals(0,momSummary.feeds);assertEquals(0,momSummary.diapers);assertEquals(2,momSummary.sleepSeconds);assertEquals(1,momSummary.pumpSessions);assertEquals(4.0,momSummary.pumpMl,0.0)
+    }
     @Test fun sameAgeComparisonUsesBirthOffset() {val a=Profile(name="A",birth="2024-01-01");val b=Profile(name="B",birth="2025-02-01");assertEquals(LocalDate.of(2025,2,11),Analytics.comparisonDate(LocalDate.of(2024,1,11),a,b,true))}
     @Test fun lmsMedianIsFiftiethPercentile() {val lms=Lms(0,0.3487,3.3464,0.14602);assertEquals(0.0,GrowthMath.z(3.3464,lms),1e-10);assertEquals(50.0,GrowthMath.percentile(0.0),0.001);assertEquals(3.3464,GrowthMath.value(0.0,lms),1e-10)}
     @Test fun lmsForwardInverseRoundTrip() {val lms=Lms(0,1.0,35.0,0.04);for(z in listOf(-2.0,-1.0,0.0,1.0,2.0)) assertEquals(z,GrowthMath.z(GrowthMath.value(z,lms),lms),1e-8)}

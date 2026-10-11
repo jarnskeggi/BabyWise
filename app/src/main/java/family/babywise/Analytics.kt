@@ -6,6 +6,7 @@ import kotlin.math.*
 data class DailyStats(val feeds: Int = 0, val breastSeconds: Long = 0, val breastNightSeconds: Long = 0,
     val bottleMl: Double = 0.0, val pumpMl: Double = 0.0, val diapers: Int = 0, val wet: Int = 0, val dirty: Int = 0,
     val sleepSeconds: Long = 0, val sleepNightSeconds: Long = 0, val sleepCount: Int = 0)
+data class SummaryStats(val feeds: Int = 0,val diapers: Int = 0,val sleepSeconds: Long = 0,val pumpSessions: Int = 0,val pumpMl: Double = 0.0)
 object Analytics {
     fun volumeMl(value: String?, unit: String?): Double = (value?.toDoubleOrNull() ?: 0.0) * if(unit == "FLOZ") 29.5735295625 else 1.0
     fun volume(a: ActivityRecord): Double {
@@ -43,6 +44,20 @@ object Analytics {
             }
         }
         return result
+    }
+    /** Summary records belong only to the chosen profile; unassigned pumping belongs to Mom. */
+    fun summary(records: List<ActivityRecord>,profile: Profile,from: Long,until: Long): SummaryStats {
+        val relevant=records.filter {it.profileId==profile.id || profile.adult && it.profileId==null && it.type=="Pump"}
+        val entries=relevant.filter {it.start in from until until}
+        val sleep=relevant.filter {it.type=="Sleep"}.sumOf {overlap(it.start,it.start+it.duration()*1000,from,until)}/1000
+        val pumps=entries.filter {it.type=="Pump"}
+        return SummaryStats(
+            feeds=entries.count {it.type in ActivityKinds.groups.getValue("Feed")},
+            diapers=entries.count {it.type=="Diaper"},
+            sleepSeconds=sleep,
+            pumpSessions=pumps.size,
+            pumpMl=pumps.sumOf(::volume)
+        )
     }
     fun comparisonDate(day: LocalDate, source: Profile, other: Profile, byAge: Boolean): LocalDate {
         if(!byAge) return day

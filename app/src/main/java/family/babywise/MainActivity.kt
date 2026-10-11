@@ -148,28 +148,22 @@ class MainActivity: ComponentActivity() {
     var range by remember(profile.id) {mutableStateOf("Today")}
     val zone=ZoneId.systemDefault(); val now=System.currentTimeMillis()
     val start=if(range=="Today") LocalDate.now(zone).atStartOfDay(zone).toInstant().toEpochMilli() else now-24*60*60*1000L
-    // A shared pump belongs in Mom's summary, never in a child's activity totals.
-    val relevant=records.filter {it.profileId==profile.id || profile.adult && it.profileId==null && it.type=="Pump"}
-    val entries=relevant.filter {it.start in start until now}
-    val feeds=entries.count {it.type in ActivityKinds.groups.getValue("Feed")}
-    val diapers=entries.count {it.type=="Diaper"}
-    val sleepSeconds=relevant.filter {it.type=="Sleep"}.sumOf { activity -> (minOf(activity.start+activity.duration()*1000,now)-maxOf(activity.start,start)).coerceAtLeast(0)/1000 }
-    val pumps=entries.filter {it.type=="Pump"}; val pumpedOz=pumps.sumOf {Analytics.volume(it)}/29.5735295625
+    val summary=Analytics.summary(records,profile,start,now); val pumpedOz=summary.pumpMl/29.5735295625
     val activeTimers=timers.filter {it.owner==profile.id || profile.adult && it.owner.isBlank()}
     FullScreen("Summary - ${profile.name}",close,accent("Sleep")) {
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(24.dp),verticalArrangement=Arrangement.spacedBy(14.dp)) {
             Choices("",listOf("Today","Last 24 hours"),range) {range=it}
             Text(if(range=="Today") "Since midnight" else "The previous 24 hours",color=Muted)
             if(profile.adult) {
-                SummaryTile("Sleep",displayDuration(sleepSeconds),accent("Sleep"))
-                SummaryTile("Pump sessions",pumps.size.toString(),accent("Pump"))
+                SummaryTile("Sleep",displayDuration(summary.sleepSeconds),accent("Sleep"))
+                SummaryTile("Pump sessions",summary.pumpSessions.toString(),accent("Pump"))
                 SummaryTile("Amount pumped","${"%.1f".format(pumpedOz)} oz",accent("Pump"))
             } else {
-                SummaryTile("Feeds",feeds.toString(),accent("Feed"))
-                SummaryTile("Diapers",diapers.toString(),accent("Diaper"))
-                SummaryTile("Sleep",displayDuration(sleepSeconds),accent("Sleep"))
+                SummaryTile("Feeds",summary.feeds.toString(),accent("Feed"))
+                SummaryTile("Diapers",summary.diapers.toString(),accent("Diaper"))
+                SummaryTile("Sleep",displayDuration(summary.sleepSeconds),accent("Sleep"))
             }
-            if(entries.isEmpty() && sleepSeconds==0L) Text("No activity in this time period.",color=Muted,modifier=Modifier.padding(top=12.dp))
+            if(summary==SummaryStats()) Text("No activity in this time period.",color=Muted,modifier=Modifier.padding(top=12.dp))
             if(activeTimers.isNotEmpty()) {
                 Text("Currently timing",fontSize=18.sp,fontWeight=FontWeight.SemiBold,modifier=Modifier.padding(top=12.dp))
                 activeTimers.forEach {t->Text("${t.type}: ${if(t.running) "running" else "paused"}",color=Muted,modifier=Modifier.padding(vertical=4.dp))}
